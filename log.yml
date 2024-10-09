@@ -1,0 +1,6 @@
+---
+- hosts: all
+  tasks:
+    - name: Запись в лог
+      command: echo "Лог записан" >> /tmp/log.txt
+
