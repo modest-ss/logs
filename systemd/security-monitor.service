@@ -1,9 +1,0 @@
-[Unit]
-Description=Read-only server security monitor
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/python3 /opt/security-monitor/security_monitor.py --format markdown
-StandardOutput=append:/var/log/security-monitor.log
-StandardError=append:/var/log/security-monitor.log

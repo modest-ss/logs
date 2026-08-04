@@ -1,76 +1,36 @@
 # 🛡️ Linux Security Monitor Sub-Agent
 
-**Русскоязычный субагент безопасности с ИИ-управлением для мониторинга Linux-серверов**
+**Русскоязычный субагент безопасности для мониторинга Linux-серверов**
 
 ## 📋 Описание
 
 Автоматизированный инструмент мониторинга безопасности, который:
-- **Сканирует систему** на предмет угроз и уязвимостей (20 проверок)
-- **ИИ-анализ** — интеллектуальная оценка рисков и принятие решений
+- **Сканирует систему** на предмет угроз и уязвимостей
 - **Фильтрует события** — только CRITICAL и HIGH уровень
 - **Защищает от спама** — дедупликация, ежедневные сводки
 - **Идентифицирует сервер** — hostname и IP в каждом отчете
 - **Работает в режиме read-only** — не изменяет систему
-- **Отслеживает тренды** — анализ динамики безопасности
-
-## 🤖 ИИ-субагент
-
-Новый модуль `ai_sub_agent.py` предоставляет:
-- **Интеллектуальный анализ** результатов проверок
-- **Автоматические решения** (alert/suppress/escalate/investigate)
-- **Оценку риска** (0-100) на основе находок
-- **Анализ трендов** (improving/stable/degrading)
-- **Контекстные рекомендации** по исправлению проблем
-- **Историю и обучение** на основе предыдущих отчетов
-
-### Использование ИИ-субагента
-
-```bash
-# Быстрый статус с оценкой риска
-python3 ai_sub_agent.py --quick
-
-# Полный анализ с ИИ-решениями (JSON)
-python3 ai_sub_agent.py --format json
-
-# Интеграция с Hermes
-python3 ai_sub_agent.py --format hermes
-
-# Интеграция с OpenClaw
-python3 ai_sub_agent.py --format openclaw
-
-# Отчет в Markdown с рекомендациями
-python3 ai_sub_agent.py --format markdown
-```
 
 ## 🔑 Ключевые особенности
 
-### 1. ИИ-управление
-- ✅ Автоматическая оценка критичности событий
-- ✅ Принятие решений на основе контекста
-- ✅ Выявление повторяющихся проблем
-- ✅ Генерация умных рекомендаций
-- ✅ Расчет общего риска системы
-
-### 2. Anti-Spam система
+### 1. Anti-Spam система
 - ✅ Дедупликация событий (окно 24 часа)
 - ✅ Подавление чистых отчетов (если проблем нет)
 - ✅ Rate limiting (макс. 1 дайджест в день)
 - ✅ Hash-based сравнение находок
 
-### 3. Идентификация сервера
+### 2. Идентификация сервера
 Каждый отчет содержит:
 - `server_hostname` — имя сервера
 - `server_ip` — список IP адресов
 - `timestamp` — время проверки
-- `risk_score` — оценка риска (0-100)
-- `trend` — тренд безопасности
 
-### 4. Ежедневный режим
+### 3. Ежедневный режим
 - Запуск по cron один раз в сутки (рекомендуется 06:00 UTC)
 - Автоматическая генерация сводки
 - Интеграция с Hermes и OpenClaw
 
-### 5. Полное покрытие портов
+### 4. Полное покрытие портов
 - Мониторинг **всех** слушающих портов (TCP/UDP, IPv4/IPv6)
 - Детекция новых открытых портов
 - Детекция закрытых портов
@@ -165,7 +125,7 @@ crontab -e
 
 ```bash
 # Импорт агента
-hermes import-agent ./linux-security-monitor/hermes-agent-card.json
+hermes import-agent ./hermes-agent-card.json
 
 # Конфигурация включает:
 # - daily_summary режим
@@ -178,7 +138,7 @@ hermes import-agent ./linux-security-monitor/hermes-agent-card.json
 
 ```bash
 # Импорт агента
-openclaw agent import ./linux-security-monitor/openclaw-agent-card.json
+openclaw agent import ./openclaw-agent-card.json
 
 # Конфигурация включает:
 # - schedule: daily at 06:00 UTC
@@ -189,14 +149,11 @@ openclaw agent import ./linux-security-monitor/openclaw-agent-card.json
 ## 📁 Структура проекта
 
 ```
-/workspace/
-├── README.md                          # Главная документация
-└── linux-security-monitor/
-    ├── security_monitor.py            # Основной скрипт (1168 строк, 20 проверок)
-    ├── ai_sub_agent.py                # ИИ-субагент (539 строк)
-    ├── hermes-agent-card.json         # Конфигурация для Hermes (с AI tool)
-    ├── openclaw-agent-card.json       # Конфигурация для OpenClaw (с AI action)
-    └── README.md                      # Документация пакета
+linux-security-monitor/
+├── security_monitor.py      # Основной скрипт
+├── hermes-agent-card.json   # Конфигурация для Hermes
+├── openclaw-agent-card.json # Конфигурация для OpenClaw
+└── README.md                # Эта документация
 ```
 
 ## 🛡️ Anti-Spam логика
