@@ -1,17 +1,18 @@
 {
   "name": "linux-security-monitor-ru",
-  "version": "2.1.0",
+  "version": "2.3.0",
   "language": "ru",
-  "description": "Субагент безопасности Linux для Hermes. Мониторит только критические и опасные события, отправляет ежедневную сводку с идентификацией сервера.",
+  "description": "Субагент безопасности Linux для Hermes. Мониторит только критические и опасные события, отправляет ежедневную сводку с идентификацией сервера. Полное покрытие портов и детекция изменений.",
   "author": "Security Team",
   "license": "MIT",
-  
+  "tags": ["security", "monitoring", "linux", "daily-report", "russian", "anti-spam", "port-monitoring"],
+
   "schedule": {
     "frequency": "daily",
     "time": "06:00",
     "timezone": "UTC"
   },
-  
+
   "permissions": [
     "read:system",
     "read:network",
@@ -19,7 +20,7 @@
     "read:config_files",
     "execute:readonly_commands"
   ],
-  
+
   "constraints": {
     "read_only": true,
     "no_network_access": true,
@@ -27,8 +28,15 @@
     "timeout_seconds": 120,
     "max_output_size_kb": 512
   },
-  
+
   "tools": [
+    {
+      "name": "ai_security_scan",
+      "type": "ai_controller",
+      "description": "ИИ-субагент для интеллектуального анализа безопасности с принятием решений",
+      "entry_point": "python3 ai_sub_agent.py --format hermes",
+      "severity_filter": ["critical", "high"]
+    },
     {
       "name": "check_updates",
       "type": "system",
@@ -42,15 +50,15 @@
       "severity_filter": ["critical", "high"]
     },
     {
+      "name": "check_listening_ports",
+      "type": "network",
+      "description": "Мониторинг всех слушающих портов с детекцией изменений",
+      "severity_filter": ["critical", "high"]
+    },
+    {
       "name": "check_firewall",
       "type": "network",
       "description": "Проверка статуса файрвола (UFW/nftables/iptables)",
-      "severity_filter": ["high"]
-    },
-    {
-      "name": "check_listening_ports",
-      "type": "network",
-      "description": "Проверка публичных слушающих портов",
       "severity_filter": ["high"]
     },
     {
@@ -74,7 +82,7 @@
     {
       "name": "check_disk",
       "type": "system",
-      "description": "Мониторинг заполненности дисков",
+      "description": "Мониторинг заполненности дисков и inode",
       "severity_filter": ["high"]
     },
     {
@@ -92,25 +100,65 @@
     {
       "name": "check_processes",
       "type": "network",
-      "description": "Проверка процессов на подозрительные подключения",
+      "description": "Проверка процессов на подозрительную активность (майнеры, backdoor)",
       "severity_filter": ["critical"]
+    },
+    {
+      "name": "check_env_vars",
+      "type": "audit",
+      "description": "Проверка переменных окружения на секреты",
+      "severity_filter": ["high"]
+    },
+    {
+      "name": "check_oom",
+      "type": "system",
+      "description": "Проверка OOM killer событий",
+      "severity_filter": ["high"]
+    },
+    {
+      "name": "check_zombie_processes",
+      "type": "system",
+      "description": "Проверка zombie процессов",
+      "severity_filter": ["high"]
+    },
+    {
+      "name": "check_promiscuous_mode",
+      "type": "network",
+      "description": "Проверка интерфейсов в promiscuous mode",
+      "severity_filter": ["high"]
+    },
+    {
+      "name": "check_audit_status",
+      "type": "audit",
+      "description": "Проверка статуса auditd",
+      "severity_filter": ["high"]
+    },
+    {
+      "name": "check_time_changes",
+      "type": "audit",
+      "description": "Проверка изменений системного времени",
+      "severity_filter": ["high"]
+    },
+    {
+      "name": "check_network_errors",
+      "type": "network",
+      "description": "Проверка сетевых ошибок",
+      "severity_filter": ["high"]
     }
   ],
-  
+
   "alerting": {
     "critical": {
       "immediate": true,
       "channels": ["telegram", "email", "slack"],
       "deduplication_window_minutes": 60,
-      "escalation_after_minutes": 15,
-      "include_server_info": true
+      "escalation_after_minutes": 15
     },
     "high": {
       "immediate": false,
       "daily_summary": true,
       "channels": ["telegram"],
-      "deduplication_window_minutes": 1440,
-      "include_server_info": true
+      "deduplication_window_minutes": 1440
     },
     "medium": {
       "suppress": true
@@ -122,29 +170,19 @@
       "suppress": true
     }
   },
-  
+
   "response_schema": {
     "type": "object",
     "properties": {
       "timestamp": {"type": "string", "format": "date-time"},
       "mode": {"type": "string", "enum": ["critical_high_only"]},
       "schedule": {"type": "string", "enum": ["daily"]},
-      "server": {
-        "type": "object",
-        "properties": {
-          "hostname": {"type": "string"},
-          "fqdn": {"type": "string"},
-          "ip_addresses": {"type": "array", "items": {"type": "string"}},
-          "server_id": {"type": "string"}
-        },
-        "required": ["hostname", "server_id"]
-      },
+      "server_hostname": {"type": "string"},
+      "server_ip": {"type": "array", "items": {"type": "string"}},
       "total_findings": {"type": "integer"},
       "critical_count": {"type": "integer"},
       "high_count": {"type": "integer"},
       "status": {"type": "string", "enum": ["clean", "issues_found"]},
-      "skipped": {"type": "boolean"},
-      "skip_reason": {"type": "string"},
       "findings": {
         "type": "array",
         "items": {
@@ -154,25 +192,27 @@
             "severity": {"type": "string", "enum": ["critical", "high"]},
             "summary": {"type": "string"},
             "details": {"type": "string"},
-            "remediation": {"type": "string"}
+            "remediation": {"type": "string"},
+            "timestamp": {"type": "string", "format": "date-time"},
+            "server_hostname": {"type": "string"},
+            "server_ip": {"type": "array", "items": {"type": "string"}}
           },
           "required": ["check", "severity", "summary"]
         }
       }
     },
-    "required": ["timestamp", "server", "total_findings", "status"]
+    "required": ["timestamp", "server_hostname", "total_findings", "status"]
   },
-  
+
   "integration": {
     "hermes": {
       "import_command": "hermes import-agent ./hermes-agent-card.json",
       "trigger_format": "json",
       "output_format": "markdown",
-      "chat_integration": true,
-      "server_identification": true
+      "chat_integration": true
     }
   },
-  
+
   "anti_spam": {
     "enabled": true,
     "daily_summary_only": true,
@@ -181,25 +221,30 @@
     "deduplication": {
       "enabled": true,
       "window_hours": 24,
-      "hash_based": true,
-      "similarity_threshold": 0.8
+      "hash_algorithm": "sha256"
+    },
+    "rate_limit": {
+      "max_digests_per_day": 1,
+      "max_alerts_per_hour": 5
     },
     "quiet_hours": {
       "enabled": false,
       "start": "22:00",
       "end": "08:00"
-    },
-    "rate_limit": {
-      "max_digests_per_day": 1,
-      "max_alerts_per_hour": 5
     }
   },
-  
+
+  "server_identification": {
+    "include_hostname": true,
+    "include_ip_addresses": true,
+    "include_timestamp": true
+  },
+
   "metadata": {
     "created": "2025-01-15",
     "updated": "2025-01-15",
-    "tags": ["security", "linux", "monitoring", "daily-report", "russian", "anti-spam", "server-id"],
-    "compatibility": ["ubuntu", "debian", "centos", "rhel"],
+    "tags": ["security", "linux", "monitoring", "daily-report", "russian", "anti-spam"],
+    "compatibility": ["ubuntu", "debian", "centos", "rhel", "fedora"],
     "python_version": "3.6+"
   }
 }

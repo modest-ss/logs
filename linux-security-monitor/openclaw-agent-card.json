@@ -1,0 +1,119 @@
+{
+  "agent_id": "linux-security-monitor-ru",
+  "version": "2.3.0",
+  "language": "ru",
+  "description": "Субагент безопасности Linux для OpenClaw. Мониторит только критические и опасные события, отправляет ежедневную сводку с идентификацией сервера.",
+  "author": "Security Team",
+  "license": "MIT",
+  "tags": ["security", "monitoring", "linux", "daily-report", "russian", "anti-spam"],
+
+  "openclaw_config": {
+    "type": "sub-agent",
+    "category": "security",
+    "execution": {
+      "runtime": "python3",
+      "isolation": "sandbox",
+      "timeout_seconds": 120,
+      "max_memory_mb": 256,
+      "concurrent_limit": 1
+    },
+    "schedule": {
+      "frequency": "daily",
+      "time": "06:00",
+      "timezone": "UTC"
+    }
+  },
+
+  "actions": [
+    {
+      "name": "ai_security_scan",
+      "description": "ИИ-субагент для интеллектуального анализа безопасности с принятием решений",
+      "entry_point": "python3 ai_sub_agent.py --format openclaw",
+      "output_format": "json",
+      "cache_enabled": false,
+      "ai_powered": true
+    },
+    {
+      "name": "security_scan",
+      "description": "Запуск полной проверки безопасности",
+      "entry_point": "python3 security_monitor.py --format json",
+      "output_format": "json",
+      "cache_enabled": false
+    },
+    {
+      "name": "security_scan_markdown",
+      "description": "Запуск проверки с выводом в Markdown",
+      "entry_point": "python3 security_monitor.py --format markdown",
+      "output_format": "text",
+      "cache_enabled": false
+    }
+  ],
+
+  "monitoring": {
+    "checks": [
+      "package_updates",
+      "ssh_config",
+      "listening_ports",
+      "firewall_status",
+      "failed_logins",
+      "privileged_users",
+      "systemd_services",
+      "disk_usage",
+      "selinux_apparmor",
+      "cron_jobs",
+      "suspicious_processes",
+      "env_secrets",
+      "oom_events",
+      "zombie_processes",
+      "promiscuous_interfaces",
+      "audit_status",
+      "time_changes",
+      "network_errors"
+    ],
+    "severity_filter": ["critical", "high"],
+    "deduplication_window_hours": 24
+  },
+
+  "integration": {
+    "openclaw": {
+      "import_command": "openclaw agent import ./openclaw-agent-card.json",
+      "trigger_template": "{agent_id}.security_scan()",
+      "output_template": "Server: {server.hostname}\nStatus: {report.status}\nCritical: {report.critical_count}\nHigh: {report.high_count}"
+    },
+    "alerting": {
+      "critical": {
+        "immediate": true,
+        "channels": ["telegram", "slack", "email"]
+      },
+      "high": {
+        "daily_summary": true,
+        "channels": ["telegram"]
+      }
+    }
+  },
+
+  "anti_spam": {
+    "enabled": true,
+    "daily_digest": true,
+    "suppress_clean_reports": true,
+    "min_severity": "high",
+    "deduplication": {
+      "enabled": true,
+      "window_hours": 24,
+      "hash_based": true
+    }
+  },
+
+  "server_identification": {
+    "hostname": "{server.hostname}",
+    "ip_addresses": "{server.ip_list}",
+    "timestamp": "{report.timestamp}"
+  },
+
+  "metadata": {
+    "created": "2025-01-15",
+    "updated": "2025-01-15",
+    "compatibility": ["ubuntu", "debian", "centos", "rhel", "fedora"],
+    "python_version": "3.6+"
+  }
+}
