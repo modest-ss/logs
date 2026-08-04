@@ -1,33 +1,58 @@
 ```
-# Environment variables
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
 .env
 .env.local
 *.env.*
 
-# Logs
-*.log
+# Dependencies
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
 
 # Coverage reports
 coverage/
 htmlcov/
 .coverage
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Python specific
+*.py[cod]
+*$py.class
+*.so
 .Python
-env/
-venv/
-.venv/
-.ENV
-.python-version
+*.egg-info/
+.egg-info/
+.installed.cfg
+.pip-delete-this-directory.txt
 
-# Testing
-.pytest_cache/
-.mypy_cache/
+# Backup files
+*~
+*.bak
+*.swp
+*.swo
 
-# Distribution / packaging
-.pybuild/
+# Temporary files
+*.tmp
+*.temp
+*.log
 ```
