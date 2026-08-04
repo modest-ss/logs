@@ -141,13 +141,57 @@ Status: inactive
 
 ## Integration with Agent Orchestrators
 
-### Tool Definition (JSON)
+### Hermes Framework
+
+Import the sub-agent using the Hermes configuration file:
+
+```bash
+# Copy the Hermes agent card to your Hermes configuration directory
+cp hermes-agent-card.json /etc/hermes/agents/security-monitor.json
+
+# Or load via Hermes API
+curl -X POST http://hermes-host:8080/api/v1/agents/import \
+  -H "Content-Type: application/json" \
+  -d @hermes-agent-card.json
+```
+
+**Hermes Configuration Features:**
+- `hermes_config.agent_type`: Defines as sub-agent with sandboxed execution
+- `hermes_config.permissions`: Fine-grained filesystem, network, and process permissions
+- `hermes_config.tools`: Three tool variants (JSON, Markdown, Strict mode)
+- `hermes_config.constraints`: Enforces read-only, no-modification policies
+- `hermes_config.alerting`: Automatic alerts for critical/high findings
+- `hermes_config.response_schema`: Structured JSON output validation
+
+### OpenClaw Framework
+
+Import the sub-agent using the OpenClaw configuration file:
+
+```bash
+# Copy the OpenClaw agent card to your OpenClaw agents directory
+cp openclaw-agent-card.json /etc/openclaw/agents/security-monitor.json
+
+# Or register via OpenClaw CLI
+openclaw agent register --config openclaw-agent-card.json
+```
+
+**OpenClaw Configuration Features:**
+- `openclaw_config.interface.tools`: Three audit tools with input/output schemas
+- `openclaw_config.interface.actions`: Pre-defined actions (full audit, critical check, report generation)
+- `openclaw_config.permissions`: Detailed filesystem paths, denied paths, environment masking
+- `openclaw_config.monitoring.alerting`: P0/P1/P2 priority alert rules
+- `openclaw_config.integration`: API endpoints and webhook support
+- `openclaw_config.behavior`: System prompt and error handling policies
+
+### Generic Agent Card (Backward Compatible)
+
+For other frameworks or custom integrations, use the simplified agent card:
 
 ```json
 {
   "name": "security-monitor",
   "description": "Read-only sub-agent for Linux server security monitoring",
-  "system_prompt": "Ты — саб-агент безопасности сервера. Твоя задача — только мониторинг, диагностика и рекомендации. Ты не изменяешь конфигурацию сервера, не устанавливаешь пакеты, не перезапускаешь сервисы и не блокируешь IP без явного подтверждения человека.",
+  "system_prompt": "Ты — саб-агент безопасности сервера. Твоя задача — только мониторинг, диагностика и рекомендации...",
   "tools": [
     {
       "name": "security_audit",
@@ -167,6 +211,8 @@ Status: inactive
   ]
 }
 ```
+
+See `examples/agent-card.json` for the complete generic configuration.
 
 ### Example Agent Prompt
 
@@ -198,12 +244,15 @@ security-monitor/
 ├── README.md                 # This file
 ├── LICENSE                   # MIT License
 ├── .gitignore
+├── hermes-agent-card.json    # Hermes framework configuration
+├── openclaw-agent-card.json  # OpenClaw framework configuration
 ├── systemd/
 │   ├── security-monitor.service
 │   └── security-monitor.timer
 └── examples/
-    ├── agent-card.json
-    └── sample-output.json
+    ├── agent-card.json           # Generic agent card
+    ├── hermes-agent-card.json    # Hermes configuration (copy)
+    └── openclaw-agent-card.json  # OpenClaw configuration (copy)
 ```
 
 ## CLI Options

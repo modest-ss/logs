@@ -1,0 +1,277 @@
+{
+  "name": "security-monitor",
+  "version": "1.0.0",
+  "description": "Read-only sub-agent for Linux server security monitoring",
+  "author": "Security Monitor Team",
+  "license": "MIT",
+  "tags": ["security", "monitoring", "linux", "audit", "read-only"],
+  
+  "openclaw_config": {
+    "type": "sub-agent",
+    "category": "security",
+    "execution": {
+      "runtime": "python3",
+      "isolation": "sandbox",
+      "timeout_seconds": 120,
+      "max_memory_mb": 256,
+      "concurrent_limit": 1
+    },
+    
+    "interface": {
+      "tools": [
+        {
+          "id": "security_audit",
+          "name": "Security Audit",
+          "description": "Comprehensive read-only Linux security assessment with severity-ranked findings",
+          "command": "python3 /opt/security-monitor/security_monitor.py --format json",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "meta": {"type": "object"},
+              "findings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "severity": {"type": "string"},
+                    "title": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "remediation": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "security_audit_md",
+          "name": "Security Audit (Markdown)",
+          "description": "Human-readable security report in Markdown format",
+          "command": "python3 /opt/security-monitor/security_monitor.py --format markdown",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "output_schema": {
+            "type": "string",
+            "format": "markdown"
+          }
+        },
+        {
+          "id": "security_audit_strict",
+          "name": "Security Audit (Strict Mode)",
+          "description": "Security audit that fails on critical/high findings (exit code 2)",
+          "command": "python3 /opt/security-monitor/security_monitor.py --format json --fail-on critical",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "fail_level": {
+                "type": "string",
+                "enum": ["critical", "high"],
+                "default": "critical"
+              }
+            },
+            "required": []
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "meta": {"type": "object"},
+              "findings": {"type": "array"}
+            }
+          },
+          "error_handling": {
+            "non_zero_exit": "propagate",
+            "timeout": "retry_0"
+          }
+        }
+      ],
+      
+      "actions": [
+        {
+          "name": "run_full_audit",
+          "description": "Execute complete security audit and return findings sorted by severity",
+          "tool_id": "security_audit",
+          "post_process": "sort_by_severity"
+        },
+        {
+          "name": "check_critical_only",
+          "description": "Quick check for critical security issues only",
+          "tool_id": "security_audit_strict",
+          "filter": "severity == 'critical'"
+        },
+        {
+          "name": "generate_report",
+          "description": "Generate human-readable security report",
+          "tool_id": "security_audit_md"
+        }
+      ]
+    },
+    
+    "permissions": {
+      "filesystem": {
+        "allowed_reads": [
+          "/etc/os-release",
+          "/etc/ssh/sshd_config",
+          "/etc/passwd",
+          "/etc/crontab",
+          "/etc/hosts.allow",
+          "/etc/hosts.deny",
+          "/var/log/auth.log"
+        ],
+        "allowed_writes": [],
+        "allowed_executes": [
+          "uname", "df", "free", "ss", "systemctl",
+          "ufw", "nft", "iptables", "journalctl",
+          "tail", "awk", "getent", "apt-get", "dnf",
+          "fail2ban-client", "docker", "getenforce",
+          "aa-status", "sysctl", "last", "who",
+          "crontab", "lsof", "ps", "env"
+        ],
+        "denied_paths": [
+          "/etc/shadow",
+          "/root/.ssh/*",
+          "/home/*/.ssh/*",
+          "*/private_keys/*",
+          "*/.gnupg/*"
+        ]
+      },
+      "network": {
+        "outbound_allowed": false,
+        "inbound_allowed": false,
+        "exceptions": []
+      },
+      "process": {
+        "can_spawn": true,
+        "constraints": ["read_only", "no_modification", "no_persistence"]
+      },
+      "environment": {
+        "read_only": true,
+        "masked_vars": ["*PASSWORD*", "*SECRET*", "*TOKEN*", "*KEY*"]
+      }
+    },
+    
+    "behavior": {
+      "system_prompt": "Ты — саб-агент безопасности сервера (Security Monitor). Твоя задача — ТОЛЬКО мониторинг, диагностика и рекомендации. ЗАПРЕЩЕНО: изменять конфигурацию, устанавливать пакеты, перезапускать сервисы, блокировать IP без явного подтверждения человека. Анализируй результаты security_audit, объясняй риски и предлагай remediation-шаги. Critical-находки выводи в начале отчёта.",
+      
+      "response_format": {
+        "structure": "severity_ordered",
+        "include_metadata": true,
+        "include_recommendations": true,
+        "max_findings_display": 50
+      },
+      
+      "error_handling": {
+        "on_permission_denied": "log_and_continue",
+        "on_command_not_found": "skip_check",
+        "on_timeout": "return_partial_results",
+        "on_critical_error": "return_error_with_context"
+      }
+    },
+    
+    "constraints": [
+      "READ_ONLY_MODE",
+      "NO_SYSTEM_MODIFICATION",
+      "NO_PACKAGE_INSTALLATION",
+      "NO_SERVICE_RESTART",
+      "NO_IP_BLOCKING",
+      "NO_SECRET_EXFILTRATION",
+      "REPORT_ONLY",
+      "NO_NETWORK_ACCESS",
+      "SANDBOXED_EXECUTION"
+    ],
+    
+    "monitoring": {
+      "metrics": {
+        "execution_time": true,
+        "findings_count": true,
+        "severity_distribution": true,
+        "error_rate": true
+      },
+      "alerting": {
+        "enabled": true,
+        "rules": [
+          {
+            "name": "critical_finding_detected",
+            "condition": "any(finding.severity == 'critical' for finding in findings)",
+            "action": "alert_immediate",
+            "priority": "P0"
+          },
+          {
+            "name": "high_finding_detected",
+            "condition": "any(finding.severity == 'high' for finding in findings)",
+            "action": "alert_high_priority",
+            "priority": "P1"
+          },
+          {
+            "name": "multiple_medium_findings",
+            "condition": "sum(1 for f in findings if f.severity == 'medium') >= 5",
+            "action": "alert_medium_priority",
+            "priority": "P2"
+          }
+        ]
+      },
+      "logging": {
+        "level": "INFO",
+        "destinations": ["stdout", "file:/var/log/security-monitor.log"],
+        "include": ["metadata", "findings_summary", "errors", "execution_time"]
+      }
+    },
+    
+    "integration": {
+      "api_endpoints": {
+        "health_check": "/api/v1/security-monitor/health",
+        "run_audit": "/api/v1/security-monitor/audit",
+        "get_last_report": "/api/v1/security-monitor/report/latest"
+      },
+      "webhook_support": true,
+      "event_emission": {
+        "on_audit_complete": "security.audit.completed",
+        "on_critical_finding": "security.alert.critical",
+        "on_high_finding": "security.alert.high"
+      }
+    }
+  },
+  
+  "deployment": {
+    "installation": {
+      "target_path": "/opt/security-monitor",
+      "main_script": "security_monitor.py",
+      "permissions": "755",
+      "owner": "root",
+      "group": "root"
+    },
+    "requirements": {
+      "python_version": ">=3.7",
+      "os": ["Ubuntu", "Debian", "RHEL", "CentOS", "Fedora"],
+      "privileges": "root_or_sudo_for_some_checks"
+    },
+    "optional_dependencies": [
+      "ufw | nftables | iptables",
+      "fail2ban",
+      "docker",
+      "openssh-server"
+    ],
+    "verification": {
+      "command": "python3 /opt/security-monitor/security_monitor.py --help",
+      "expected_exit_code": 0
+    }
+  },
+  
+  "changelog": {
+    "1.0.0": [
+      "Initial release",
+      "Support for Hermes and OpenClaw agent frameworks",
+      "15+ security checks (updates, SSH, firewall, ports, users, disk, Docker, SELinux/AppArmor, sysctl, logins, cron, password policy, processes, environment)",
+      "JSON and Markdown output formats",
+      "Severity-based filtering and alerting",
+      "Read-only safety guarantees"
+    ]
+  }
+}

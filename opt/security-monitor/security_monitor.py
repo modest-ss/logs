@@ -46,11 +46,37 @@ ALLOWED_COMMANDS = {
         "--format",
         "table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
     ],
+    "selinux_status": ["getenforce"],
+    "apparmor_status": ["aa-status", "--enabled"],
+    "sysctl_security": [
+        "sysctl",
+        "-n",
+        "kernel.randomize_va_space",
+        "kernel.dmesg_restrict",
+        "kernel.kptr_restrict",
+        "net.ipv4.conf.all.accept_source_route",
+        "net.ipv4.conf.all.accept_redirects",
+        "net.ipv4.conf.all.send_redirects",
+        "net.ipv4.icmp_echo_ignore_broadcasts"
+    ],
+    "last_logins": ["last", "-n", "20"],
+    "active_sessions": ["who"],
+    "cron_root": ["cat", "/etc/crontab"],
+    "cron_list": ["crontab", "-l"],
+    "opened_files": ["lsof", "-i", "-nP"],
+    "processes": ["ps", "auxww"],
+    "environment_vars": ["env"],
 }
 
 ALLOWED_FILES = {
     "/etc/os-release",
     "/etc/ssh/sshd_config",
+    "/etc/crontab",
+    "/etc/passwd",
+    "/etc/shadow",
+    "/etc/sudoers",
+    "/etc/hosts.allow",
+    "/etc/hosts.deny",
 }
 
 SEVERITY_ORDER = {
@@ -796,6 +822,474 @@ def check_docker(findings: List[Finding]) -> None:
             )
 
 
+def check_selinux_apparmor(findings: List[Finding]) -> None:
+    """Проверка SELinux и AppArmor статусов."""
+    # SELinux
+    if shutil.which("getenforce"):
+        res = run_cmd("selinux_status")
+        if res["ok"]:
+            status = res["stdout"].strip().lower()
+            if status == "disabled":
+                add(
+                    findings,
+                    "medium",
+                    "SELinux отключён",
+                    "SELinux status: Disabled",
+                    "Рассмотрите включение SELinux в режиме Enforcing для дополнительной защиты.",
+                )
+            elif status == "permissive":
+                add(
+                    findings,
+                    "low",
+                    "SELinux в режиме Permissive",
+                    "SELinux status: Permissive",
+                    "Режим Permissive полезен для отладки, но для продакшена рекомендуется Enforcing.",
+                )
+            else:
+                add(
+                    findings,
+                    "info",
+                    "SELinux активен (Enforcing)",
+                    f"SELinux status: {res['stdout'].strip()}",
+                    "",
+                )
+        else:
+            add(
+                findings,
+                "info",
+                "SELinux: не удалось получить статус",
+                res["stderr"],
+                "",
+            )
+
+    # AppArmor
+    if shutil.which("aa-status"):
+        res = run_cmd("apparmor_status")
+        if res["ok"]:
+            add(
+                findings,
+                "info",
+                "AppArmor активен",
+                res["stdout"][:1000],
+                "Проверьте количество профилей и режимы enforcement.",
+            )
+        else:
+            add(
+                findings,
+                "low",
+                "AppArmor установлен, но статус недоступен",
+                res["stderr"],
+                "Проверьте: aa-status или systemctl status apparmor.",
+            )
+
+    if not shutil.which("getenforce") and not shutil.which("aa-status"):
+        add(
+            findings,
+            "low",
+            "MAC-системы (SELinux/AppArmor) не обнаружены",
+            "",
+            "Рассмотрите включение SELinux (RHEL/CentOS) или AppArmor (Debian/Ubuntu).",
+        )
+
+
+def check_sysctl_security(findings: List[Finding]) -> None:
+    """Проверка важных kernel security параметров через sysctl."""
+    if not shutil.which("sysctl"):
+        return
+
+    res = run_cmd("sysctl_security")
+    if not res["ok"]:
+        add(
+            findings,
+            "info",
+            "Sysctl: не удалось прочитать security параметры",
+            res["stderr"],
+            "",
+        )
+        return
+
+    lines = res["stdout"].strip().split("\n")
+    if len(lines) < 6:
+        return
+
+    try:
+        va_space = int(lines[0]) if lines[0].isdigit() else -1
+        dmesg_restrict = int(lines[1]) if lines[1].isdigit() else -1
+        kptr_restrict = int(lines[2]) if lines[2].isdigit() else -1
+        accept_source_route = int(lines[3]) if lines[3].isdigit() else -1
+        accept_redirects = int(lines[4]) if lines[4].isdigit() else -1
+        send_redirects = int(lines[5]) if lines[5].isdigit() else -1
+
+        if va_space != 2:
+            add(
+                findings,
+                "medium",
+                "ASLR отключён или частично включён",
+                f"kernel.randomize_va_space = {va_space} (рекомендуется 2)",
+                "Выполните: sysctl -w kernel.randomize_va_space=2",
+            )
+
+        if dmesg_restrict != 1:
+            add(
+                findings,
+                "low",
+                "dmesg restrict не включён",
+                f"kernel.dmesg_restrict = {dmesg_restrict} (рекомендуется 1)",
+                "Выполните: sysctl -w kernel.dmesg_restrict=1",
+            )
+
+        if kptr_restrict not in (1, 2):
+            add(
+                findings,
+                "low",
+                "kptr restrict не оптимальен",
+                f"kernel.kptr_restrict = {kptr_restrict} (рекомендуется 1 или 2)",
+                "Выполните: sysctl -w kernel.kptr_restrict=1",
+            )
+
+        if accept_source_route != 0:
+            add(
+                findings,
+                "medium",
+                "Accept source route включён",
+                f"net.ipv4.conf.all.accept_source_route = {accept_source_route} (рекомендуется 0)",
+                "Выполните: sysctl -w net.ipv4.conf.all.accept_source_route=0",
+            )
+
+        if accept_redirects != 0:
+            add(
+                findings,
+                "low",
+                "Accept redirects включён",
+                f"net.ipv4.conf.all.accept_redirects = {accept_redirects} (рекомендуется 0)",
+                "Выполните: sysctl -w net.ipv4.conf.all.accept_redirects=0",
+            )
+
+        if send_redirects != 0:
+            add(
+                findings,
+                "low",
+                "Send redirects включён",
+                f"net.ipv4.conf.all.send_redirects = {send_redirects} (рекомендуется 0)",
+                "Выполните: sysctl -w net.ipv4.conf.all.send_redirects=0",
+            )
+
+    except (ValueError, IndexError) as e:
+        add(
+            findings,
+            "info",
+            "Sysctl: ошибка парсинга параметров",
+            str(e),
+            "",
+        )
+
+
+def check_login_activity(findings: List[Finding]) -> None:
+    """Проверка последних входов в систему и активных сессий."""
+    # Последние логины
+    if shutil.which("last"):
+        res = run_cmd("last_logins")
+        if res["ok"] and res["stdout"].strip():
+            lines = [l for l in res["stdout"].splitlines() if l.strip()][:10]
+            if lines:
+                # Проверка на root логины
+                root_logins = [l for l in lines if "root" in l.split()[0] if l.split()]
+                if root_logins:
+                    add(
+                        findings,
+                        "medium",
+                        "Обнаружены недавние root-логины",
+                        "\n".join(root_logins[:5]),
+                        "Используйте sudo вместо прямого root-входа. Проверьте источник подключений.",
+                    )
+
+                add(
+                    findings,
+                    "info",
+                    "Последние входы в систему",
+                    "\n".join(lines),
+                    "Проверьте на наличие подозрительной активности.",
+                )
+        else:
+            add(
+                findings,
+                "info",
+                "Last: не удалось получить историю входов",
+                res.get("stderr", ""),
+                "",
+            )
+
+    # Активные сессии
+    if shutil.which("who"):
+        res = run_cmd("active_sessions")
+        if res["ok"] and res["stdout"].strip():
+            sessions = res["stdout"].strip().split("\n")
+            add(
+                findings,
+                "info",
+                f"Активные сессии ({len(sessions)})",
+                res["stdout"][:1000],
+                "Проверьте легитимность активных подключений.",
+            )
+        elif res["ok"]:
+            add(
+                findings,
+                "info",
+                "Активные сессии отсутствуют",
+                "",
+                "",
+            )
+
+
+def check_cron(findings: List[Finding]) -> None:
+    """Проверка cron заданий."""
+    # Root crontab
+    if shutil.which("cat"):
+        res = run_cmd("cron_root")
+        if res["ok"] and res["stdout"].strip():
+            lines = [l for l in res["stdout"].splitlines() if l.strip() and not l.startswith("#")]
+            if lines:
+                add(
+                    findings,
+                    "info",
+                    "Root cron задания",
+                    "\n".join(lines[:20]),
+                    "Проверьте на наличие подозрительных команд или скриптов.",
+                )
+            else:
+                add(
+                    findings,
+                    "info",
+                    "Root cron: заданий нет",
+                    "",
+                    "",
+                )
+        elif res["returncode"] != 0 and "permission denied" not in res["stderr"].lower():
+            add(
+                findings,
+                "info",
+                "Cron: не удалось прочитать /etc/crontab",
+                res["stderr"],
+                "",
+            )
+
+    # Текущий пользователь crontab
+    if shutil.which("crontab"):
+        res = run_cmd("cron_list")
+        if res["ok"] and res["stdout"].strip():
+            lines = [l for l in res["stdout"].splitlines() if l.strip() and not l.startswith("#")]
+            if lines:
+                add(
+                    findings,
+                    "info",
+                    "Cron задания текущего пользователя",
+                    "\n".join(lines[:20]),
+                    "Проверьте на наличие подозрительных команд.",
+                )
+        elif res["returncode"] == 1 or "no crontab" in res["stderr"].lower():
+            add(
+                findings,
+                "info",
+                "Cron: у текущего пользователя нет заданий",
+                "",
+                "",
+            )
+
+
+def check_password_policy(findings: List[Finding]) -> None:
+    """Базовая проверка политики паролей."""
+    shadow_content = read_allowed_file("/etc/shadow")
+    if shadow_content:
+        # Проверка на пустые пароли
+        empty_password_users = []
+        for line in shadow_content.splitlines():
+            parts = line.split(":")
+            if len(parts) >= 2:
+                username = parts[0]
+                password_hash = parts[1]
+                if password_hash == "" or password_hash == "!":
+                    empty_password_users.append(username)
+
+        if empty_password_users:
+            add(
+                findings,
+                "critical",
+                "Обнаружены учетные записи без пароля или заблокированные",
+                ", ".join(empty_password_users[:20]),
+                "Проверьте: grep ':*:' /etc/shadow и установите пароли или заблокируйте учетки.",
+            )
+        else:
+            add(
+                findings,
+                "info",
+                "Shadow: все учетные записи имеют хэш пароля",
+                "",
+                "",
+            )
+
+    # Проверка sudoers
+    sudoers_content = read_allowed_file("/etc/sudoers")
+    if sudoers_content:
+        # Проверка на NOPASSWD
+        nopasswd_lines = [
+            l.strip() for l in sudoers_content.splitlines()
+            if "NOPASSWD" in l and not l.startswith("#")
+        ]
+        if nopasswd_lines:
+            add(
+                findings,
+                "medium",
+                "Sudoers: найдены правила с NOPASSWD",
+                "\n".join(nopasswd_lines[:10]),
+                "Проверьте необходимость NOPASSWD для указанных пользователей/групп.",
+            )
+        else:
+            add(
+                findings,
+                "info",
+                "Sudoers: правил NOPASSWD не найдено",
+                "",
+                "",
+            )
+
+    # Проверка hosts.allow / hosts.deny
+    hosts_allow = read_allowed_file("/etc/hosts.allow")
+    hosts_deny = read_allowed_file("/etc/hosts.deny")
+
+    if hosts_deny and "ALL: ALL" not in hosts_deny:
+        add(
+            findings,
+            "low",
+            "TCP Wrappers: hosts.deny не содержит правила по умолчанию",
+            "Рекомендуется добавить: ALL: ALL",
+            "Настройте TCP Wrappers для ограничения доступа к сервисам.",
+        )
+    elif hosts_deny:
+        add(
+            findings,
+            "info",
+            "TCP Wrappers: hosts.deny настроен",
+            hosts_deny[:500],
+            "",
+        )
+
+    if hosts_allow:
+        add(
+            findings,
+            "info",
+            "TCP Wrappers: hosts.allow правила",
+            hosts_allow[:500],
+            "Проверьте список разрешённых хостов.",
+        )
+
+
+def check_processes_and_connections(findings: List[Finding]) -> None:
+    """Проверка процессов и сетевых подключений."""
+    # Проверка процессов
+    if shutil.which("ps"):
+        res = run_cmd("processes")
+        if res["ok"] and res["stdout"].strip():
+            lines = res["stdout"].splitlines()
+            # Ищем подозрительные процессы
+            suspicious_patterns = ["nc -l", "netcat", "ncat", "/tmp/", "cryptominer", "xmrig"]
+            suspicious_found = []
+            for line in lines[1:]:  # Пропускаем заголовок
+                for pattern in suspicious_patterns:
+                    if pattern.lower() in line.lower():
+                        suspicious_found.append(line)
+                        break
+
+            if suspicious_found:
+                add(
+                    findings,
+                    "high",
+                    "Обнаружены подозрительные процессы",
+                    "\n".join(suspicious_found[:10]),
+                    "Немедленно проверьте эти процессы. Это может быть признаком компрометации.",
+                )
+            else:
+                add(
+                    findings,
+                    "info",
+                    f"Процессы: всего {len(lines)-1} процессов",
+                    "\n".join(lines[:30]),
+                    "Проверьте на наличие необычных процессов.",
+                )
+
+    # Проверка сетевых подключений
+    if shutil.which("lsof"):
+        res = run_cmd("opened_files")
+        if res["ok"] and res["stdout"].strip():
+            lines = res["stdout"].splitlines()
+            # Подсчитываем подключения
+            connections = [l for l in lines if "TCP" in l or "UDP" in l]
+            if len(connections) > 50:
+                add(
+                    findings,
+                    "medium",
+                    f"Много сетевых подключений ({len(connections)})",
+                    "\n".join(connections[:20]),
+                    "Проверьте на наличие аномальной сетевой активности.",
+                )
+            elif connections:
+                add(
+                    findings,
+                    "info",
+                    f"Сетевые подключения ({len(connections)})",
+                    "\n".join(connections[:20]),
+                    "Проверьте легитимность подключений.",
+                )
+
+
+def check_environment(findings: List[Finding]) -> None:
+    """Проверка переменных окружения на безопасность."""
+    if shutil.which("env"):
+        res = run_cmd("environment_vars")
+        if res["ok"] and res["stdout"].strip():
+            env_vars = {}
+            for line in res["stdout"].splitlines():
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    env_vars[key] = value
+
+            # Проверка PATH на опасные директории
+            path = env_vars.get("PATH", "")
+            if ".:" in path or path.startswith(".") or ":." in path:
+                add(
+                    findings,
+                    "medium",
+                    "PATH содержит текущую директорию (.)",
+                    f"PATH={path}",
+                    "Удалите '.' из PATH для предотвращения выполнения вредоносных скриптов.",
+                )
+
+            # Проверка на наличие секретов в переменных окружения
+            secret_patterns = ["PASSWORD", "SECRET", "TOKEN", "API_KEY", "PRIVATE_KEY"]
+            found_secrets = []
+            for key in env_vars:
+                for pattern in secret_patterns:
+                    if pattern in key.upper() and env_vars[key]:
+                        found_secrets.append(key)
+                        break
+
+            if found_secrets:
+                add(
+                    findings,
+                    "medium",
+                    "Обнаружены секреты в переменных окружения",
+                    ", ".join(found_secrets[:10]),
+                    "Рассмотрите использование secure secret management вместо переменных окружения.",
+                )
+            else:
+                add(
+                    findings,
+                    "info",
+                    "Переменные окружения проверены",
+                    f"Всего переменных: {len(env_vars)}",
+                    "",
+                )
+
+
 def render_markdown(meta: Dict[str, str], findings: List[Finding]) -> str:
     lines = [
         "# Отчет саб-агента безопасности сервера",
@@ -867,6 +1361,13 @@ def main() -> None:
     check_fail2ban(findings)
     check_disk(findings)
     check_docker(findings)
+    check_selinux_apparmor(findings)
+    check_sysctl_security(findings)
+    check_login_activity(findings)
+    check_cron(findings)
+    check_password_policy(findings)
+    check_processes_and_connections(findings)
+    check_environment(findings)
 
     if args.format == "json":
         print(
